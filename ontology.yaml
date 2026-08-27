@@ -1,0 +1,605 @@
+# ============================================================
+# 配电网领域本体模型 (Distribution Network Ontology)
+# 版本: 1.0
+# 设计参考: IEC 61970/61968 CIM (Common Information Model) 精简
+# 用途: 支撑"馈线停电影响哪些用户""配变过载应切换到哪条备用线路"等推理性问答
+# 说明: 本体 = 类(概念) + 属性(关系) + 规则(推理公理) + 实例(演示电网)
+# ============================================================
+
+ontology:
+  name: DistributionNetworkOntology
+  version: 1.0
+  namespace: "http://example.org/power/distribution#"
+  description: >
+    配电网领域本体：以拓扑关系为核心，通过规则推理回答
+    "断点下游失电""过载触发""负荷转移可行性"等数据库无法直接回答的问题。
+
+# ------------------------------------------------------------
+# 一、类 (Class)：19 个核心类，含 4 层继承体系
+# 层次主线: PowerSystemResource → Equipment → ConductingEquipment → Switch → (断路器/分段开关/联络开关)
+# ------------------------------------------------------------
+classes:
+  - id: PowerSystemResource
+    name: 电网资源
+    parent: null
+    description: 电网中一切可管理资源的总称（顶层抽象类）
+    data_properties: [resourceName, description]
+    object_properties: [partOf]
+
+  - id: Equipment
+    name: 设备
+    parent: PowerSystemResource
+    description: 电网物理设备抽象类
+    data_properties: [installationDate]
+    object_properties: [locatedIn]
+
+  - id: ConductingEquipment
+    name: 导电设备
+    parent: Equipment
+    description: 承载电流的物理设备抽象类
+    data_properties: [ratedVoltage]
+    object_properties: [memberOf]
+
+  - id: Switch
+    name: 开关
+    parent: ConductingEquipment
+    description: 开关抽象类，核心属性为合/分状态
+    data_properties: [isClosed, ratedCurrent]
+    object_properties: [hasUpstream, hasDownstream]
+
+  - id: Breaker
+    name: 断路器
+    parent: Switch
+    description: 馈线首端断路器，具备故障开断与保护能力
+    data_properties: [breakingCapacity]
+    object_properties: [protects]
+
+  - id: Sectionalizer
+    name: 分段开关
+    parent: Switch
+    description: 馈线主干/分支上的分段开关，用于隔离故障区段
+    data_properties: [maxSwitchCurrent]
+    object_properties: [isolates]
+
+  - id: TieSwitch
+    name: 联络开关
+    parent: Switch
+    description: 连接两条馈线的开关，正常运行时常开(分)，故障/过载时合闸转供负荷
+    data_properties: [endA, endB]
+    object_properties: [connectsTo]
+
+  - id: DistributionTransformer
+    name: 配变
+    parent: ConductingEquipment
+    description: 10kV/0.4kV 配电变压器，将中压降至低压为用户供电
+    data_properties: [ratedCapacity, currentLoad, loadRate, customerCount]
+    object_properties: [suppliedBy, serves]
+
+  - id: LineSegment
+    name: 线路段
+    parent: ConductingEquipment
+    description: 馈线的物理线路段，承载主干/分支
+    data_properties: [length, impedancePerKm]
+    object_properties: [hasUpstream, hasDownstream, memberOf]
+
+  - id: Busbar
+    name: 母线
+    parent: ConductingEquipment
+    description: 变电站内的汇流母线，馈线的电源起点
+    data_properties: [phaseCount]
+    object_properties: [supplies]
+
+  - id: Substation
+    name: 变电站
+    parent: PowerSystemResource
+    description: 配电变电站，含母线，是馈线的上级电源点
+    data_properties: [substationName, voltageLevel]
+    object_properties: [hasBusbar, hasFeeder]
+
+  - id: Feeder
+    name: 馈线
+    parent: PowerSystemResource
+    description: 从母线引出的配电线路，包含开关/线路段/配变等设备
+    data_properties: [ratedCapacity, currentLoad, loadRate]
+    object_properties: [hasPart, feeds]
+
+  - id: DistributedResource
+    name: 分布式电源
+    parent: PowerSystemResource
+    description: 分布式光伏/储能等电源，可向馈线注入功率
+    data_properties: [ratedPower, outputPower]
+    object_properties: [connectedTo]
+
+  - id: Measurement
+    name: 量测
+    parent: PowerSystemResource
+    description: 设备运行量测数据（负载率、电流、电压等）
+    data_properties: [value, unit, measuredAt]
+    object_properties: [measures]
+
+  - id: Customer
+    name: 用户
+    parent: null
+    description: 低压用电客户，通过配变供电
+    data_properties: [customerCount, address]
+    object_properties: [hasMeterPoint]
+
+  - id: MeterPoint
+    name: 计量点
+    parent: null
+    description: 用户电能计量点，一户一表
+    data_properties: [meterNumber, lastReading]
+    object_properties: [belongsTo]
+
+  - id: Fault
+    name: 故障
+    parent: null
+    description: 电网故障事件（短路/接地/过载等）
+    data_properties: [faultType, faultTime]
+    object_properties: [occursAt]
+
+  - id: OutageEvent
+    name: 停电事件
+    parent: null
+    description: 停电事件，记录失电设备集合与影响用户数
+    data_properties: [cause, startTime]
+    object_properties: [affects]
+
+  - id: WorkOrder
+    name: 检修工单
+    parent: null
+    description: 计划检修工单，执行前需隔离被检修设备
+    data_properties: [status, startTime, endTime, description]
+    object_properties: [covers]
+
+# ------------------------------------------------------------
+# 二、数据属性 (DataProperty)：定义在类上的可取值属性
+# ------------------------------------------------------------
+data_properties:
+  - id: isClosed
+    name: 合闸状态
+    domain: Switch
+    range: boolean
+    description: true=合闸(导通)，false=分闸(断开)
+
+  - id: ratedCurrent
+    name: 额定电流
+    domain: Switch
+    range: float
+
+  - id: endA
+    name: 联络开关A端设备
+    domain: TieSwitch
+    range: string
+
+  - id: endB
+    name: 联络开关B端设备
+    domain: TieSwitch
+    range: string
+
+  - id: ratedCapacity
+    name: 额定容量
+    domain: ConductingEquipment
+    range: float
+    description: 单位 kVA
+
+  - id: currentLoad
+    name: 当前负荷
+    domain: ConductingEquipment
+    range: float
+    description: 单位 kVA
+
+  - id: loadRate
+    name: 负载率
+    domain: ConductingEquipment
+    range: float
+    description: currentLoad / ratedCapacity，0~1
+
+  - id: customerCount
+    name: 用户数
+    domain: Customer
+    range: integer
+
+  - id: status
+    name: 工单状态
+    domain: WorkOrder
+    range: string
+
+  - id: ratedPower
+    name: 额定功率
+    domain: DistributedResource
+    range: float
+    description: 分布式电源额定功率，单位 kW
+
+  - id: outputPower
+    name: 输出功率
+    domain: DistributedResource
+    range: float
+    description: 分布式电源当前输出功率，单位 kW
+
+  - id: value
+    name: 量测值
+    domain: Measurement
+    range: float
+    description: 量测读数（负载率/电流/电压等）
+
+  - id: unit
+    name: 量测单位
+    domain: Measurement
+    range: string
+
+  - id: measuredAt
+    name: 量测时间
+    domain: Measurement
+    range: datetime
+
+  - id: meterNumber
+    name: 表计编号
+    domain: MeterPoint
+    range: string
+
+  - id: lastReading
+    name: 最近读数
+    domain: MeterPoint
+    range: float
+
+  - id: faultType
+    name: 故障类型
+    domain: Fault
+    range: string
+    description: 短路/接地/过载等
+
+  - id: faultTime
+    name: 故障时间
+    domain: Fault
+    range: datetime
+
+  - id: cause
+    name: 停电原因
+    domain: OutageEvent
+    range: string
+
+  - id: startTime
+    name: 开始时间
+    domain: OutageEvent
+    range: datetime
+
+  - id: address
+    name: 地址
+    domain: Customer
+    range: string
+
+  - id: resourceName
+    name: 资源名称
+    domain: PowerSystemResource
+    range: string
+    description: 电网资源的通用名称标识
+
+  - id: description
+    name: 描述
+    domain: PowerSystemResource
+    range: string
+
+  - id: installationDate
+    name: 投运日期
+    domain: Equipment
+    range: datetime
+
+  - id: ratedVoltage
+    name: 额定电压
+    domain: ConductingEquipment
+    range: float
+    description: 单位 kV
+
+  - id: breakingCapacity
+    name: 遮断容量
+    domain: Breaker
+    range: float
+    description: 断路器最大遮断容量，单位 kA
+
+  - id: maxSwitchCurrent
+    name: 最大操作电流
+    domain: Sectionalizer
+    range: float
+    description: 分段开关允许的最大操作电流，单位 A
+
+  - id: length
+    name: 线路长度
+    domain: LineSegment
+    range: float
+    description: 单位 km
+
+  - id: impedancePerKm
+    name: 单位阻抗
+    domain: LineSegment
+    range: float
+    description: 每公里阻抗，单位 Ω/km
+
+  - id: phaseCount
+    name: 相数
+    domain: Busbar
+    range: integer
+
+  - id: substationName
+    name: 变电站名称
+    domain: Substation
+    range: string
+
+  - id: voltageLevel
+    name: 电压等级
+    domain: Substation
+    range: float
+    description: 单位 kV
+
+# ------------------------------------------------------------
+# 三、对象属性 (ObjectProperty)：类与类之间的语义关系
+# ------------------------------------------------------------
+object_properties:
+  - id: hasBusbar
+    name: 含母线
+    domain: Substation
+    range: Busbar
+
+  - id: hasFeeder
+    name: 含馈线
+    domain: Substation
+    range: Feeder
+
+  - id: hasPart
+    name: 包含设备
+    domain: Feeder
+    range: Equipment
+    description: 馈线由哪些设备组成
+
+  - id: hasUpstream
+    name: 上游设备
+    domain: Equipment
+    range: Equipment
+    description: 拓扑上游（靠近电源方向），一对多
+
+  - id: hasDownstream
+    name: 下游设备
+    domain: Equipment
+    range: Equipment
+    description: 拓扑下游（远离电源方向），一对多；推理的核心关系
+
+  - id: suppliedBy
+    name: 由...供电
+    domain: DistributionTransformer
+    range: Feeder
+    inverse: feeds
+
+  - id: feeds
+    name: 向...供电
+    domain: Feeder
+    range: DistributionTransformer
+    inverse: suppliedBy
+
+  - id: serves
+    name: 服务用户
+    domain: DistributionTransformer
+    range: Customer
+    inverse: belongsTo
+    description: 配变为哪些用户组供电
+
+  - id: connectsTo
+    name: 连接设备
+    domain: TieSwitch
+    range: Equipment
+    description: 联络开关连接的两端设备（跨馈线）
+
+  - id: coveredBy
+    name: 被工单覆盖
+    domain: Equipment
+    range: WorkOrder
+    description: 设备被检修工单覆盖，需停电隔离
+
+  - id: connectedTo
+    name: 接入设备
+    domain: DistributedResource
+    range: Equipment
+    description: 分布式电源接入的电网设备（馈线/线路段）
+
+  - id: measures
+    name: 量测对象
+    domain: Measurement
+    range: Equipment
+    description: 量测数据对应的设备
+
+  - id: belongsTo
+    name: 属于用户
+    domain: MeterPoint
+    range: Customer
+    description: 计量点归属于哪个用户（与 serves 互为反关系）
+
+  - id: occursAt
+    name: 发生在设备
+    domain: Fault
+    range: Equipment
+    description: 故障发生的设备
+
+  - id: affects
+    name: 影响设备
+    domain: OutageEvent
+    range: Equipment
+    description: 停电事件影响的失电设备集合
+
+  - id: partOf
+    name: 属于上级资源
+    domain: PowerSystemResource
+    range: PowerSystemResource
+    description: 资源归属的上级区域/资源（自反关系）
+
+  - id: locatedIn
+    name: 位于
+    domain: Equipment
+    range: Substation
+    description: 设备所在变电站
+
+  - id: memberOf
+    name: 属于馈线
+    domain: ConductingEquipment
+    range: Feeder
+    description: 导电设备归属的馈线（与 hasPart 互为反关系）
+
+  - id: protects
+    name: 保护馈线
+    domain: Breaker
+    range: Feeder
+    description: 断路器保护其下游馈线
+
+  - id: isolates
+    name: 隔离区段
+    domain: Sectionalizer
+    range: LineSegment
+    description: 分段开关隔离的线路区段
+
+  - id: supplies
+    name: 向馈线供电
+    domain: Busbar
+    range: Feeder
+    description: 母线为馈线提供电源
+
+  - id: hasMeterPoint
+    name: 拥有计量点
+    domain: Customer
+    range: MeterPoint
+    inverse: belongsTo
+    description: 用户拥有的电能计量点
+
+  - id: covers
+    name: 覆盖设备
+    domain: WorkOrder
+    range: Equipment
+    inverse: coveredBy
+    description: 检修工单覆盖的待检修设备
+
+# ------------------------------------------------------------
+# 四、推理规则 (Axiom)：≥8 条，声明式描述，引擎中实现
+# ------------------------------------------------------------
+rules:
+  - id: R1
+    name: 故障传播规则
+    type: 拓扑传递
+    premise: "开关 S 处于断开状态(isClosed=false)"
+    conclusion: "S 沿 hasDownstream 方向的所有设备全部失电（传播遇断开的开关或联络开关停止）"
+    swrl_like: "Switch(?s) ∧ isClosed(?s, false) ∧ hasDownstream*(?s, ?d) → deEnergized(?d)"
+    example: "S1 断开 → S1 下游的 S2/LsegX/T1/T2/T3 失电"
+
+  - id: R2
+    name: 停电影响用户规则
+    type: 归因
+    premise: "配变 T 失电"
+    conclusion: "T 通过 serves 服务的所有用户组全部停电"
+    swrl_like: "DistributionTransformer(?t) ∧ deEnergized(?t) ∧ serves(?t, ?c) → isOutaged(?c)"
+
+  - id: R3
+    name: 影响户数聚合规则
+    type: 聚合
+    premise: "失电配变集合 {T1..Tn}"
+    conclusion: "停电用户数 = Σ serves(Ti).customerCount"
+    swrl_like: "deEnergized(?t) ∧ serves(?t, ?c) ∧ customerCount(?c, ?n) → Σ?n = outageCustomerCount"
+
+  - id: R4
+    name: 配变过载触发规则
+    type: 阈值触发
+    premise: "配变 T.loadRate > 0.8"
+    conclusion: "T 进入过载状态，生成过载告警"
+    swrl_like: "DistributionTransformer(?t) ∧ loadRate(?t, ?r) ∧ swrlb:greaterThan(?r, 0.8) → overloaded(?t)"
+
+  - id: R5
+    name: 馈线过载触发规则
+    type: 阈值触发
+    premise: "馈线 F.loadRate > 0.9"
+    conclusion: "F 进入过载状态，生成馈线过载告警"
+    swrl_like: "Feeder(?f) ∧ loadRate(?f, ?r) ∧ swrlb:greaterThan(?r, 0.9) → overloaded(?f)"
+
+  - id: R6
+    name: 负荷转移可行性判定规则
+    type: 判定
+    premise: "失电/过载区域 R 存在闭合的联络开关 L 连接对侧馈线 F'，且 F'.剩余容量 ≥ R 的转移负荷"
+    conclusion: "判定 R 可经 L 转移到 F'（给出建议动作：合闸 L）"
+    swrl_like: "deEnergized(?d) ∨ overloaded(?d) ∧ TieSwitch(?l) ∧ connectsTo(?l, ?d) ∧ connectsTo(?l, ?f') ∧ remainingCapacity(?f', ?c) ∧ transferLoad(?d, ?p) ∧ swrlb:greaterThanOrEqual(?c, ?p) → transferable(?d, ?l, ?f')"
+    example: "S2 断开，LsegX/T1/T2 失电，L1 连接馈线F2，F2 剩余容量足够则建议合 L1"
+
+  - id: R7
+    name: 转移后容量校验规则
+    type: 校验
+    premise: "模拟合闸后 F'.loadRate > 0.9"
+    conclusion: "拒绝转移（F' 将过载）；否则建议合闸恢复供电"
+    swrl_like: "Feeder(?f') ∧ loadRateAfterTransfer(?f', ?r) ∧ swrlb:greaterThan(?r, 0.9) → rejectTransfer(?f') | ¬swrlb:greaterThan(?r, 0.9) → suggestClose(?l)"
+
+  - id: R8
+    name: 检修隔离规则
+    type: 业务
+    premise: "工单 WO 覆盖设备 E"
+    conclusion: "断开 E 上游最近的开关以隔离电源；同时确认 E 可达的联络开关保持断开(防倒送电)"
+    swrl_like: "WorkOrder(?wo) ∧ covers(?wo, ?e) ∧ hasUpstream*(?e, ?s) ∧ Switch(?s) → mustOpen(?s) ∧ TieSwitch(?l) ∧ connectsTo(?l, ?e) → keepOpen(?l)"
+
+  - id: R9
+    name: 多断点失电合并规则
+    type: 聚合
+    premise: "多个断点 {S1..Sn} 同时断开"
+    conclusion: "失电设备集合 = 各断点下游失电集合的并集（去重）"
+    swrl_like: "deEnergized(?d1) ∧ deEnergized(?d2) → deEnergized(?d1 ∪ ?d2)（幂等合并）"
+
+# ------------------------------------------------------------
+# 五、实例数据 (Instances)：演示电网（自洽设计）
+# 电网规模: 1 变电站 / 2 馈线 / 1 联络开关 / 6 配变 / 6 用户组(共1800户)
+# 拓扑:
+#   Bus1 → CB1 → T0 → S1 → LsegA → S2 → LsegX → T1
+#                                    ├── T2            └── T1 侧接入 L1
+#                     LsegA 分支 → T3
+#   Bus1 → CB2 → S3 → LsegB → T4、T5（分支），LsegB 接入 L1（F2侧）
+# 联络开关 L1: 连接 LsegX(F1) 与 LsegB(F2)，常开
+# ------------------------------------------------------------
+instances:
+  substations:
+    - { id: Sub1, name: 南城变电站, hasBusbar: [Bus1], hasFeeder: [F1, F2] }
+
+  busbars:
+    - { id: Bus1, name: 10kV 母线, feeder_of: null, downstream: [CB1, CB2] }
+
+  feeders:
+    - id: F1
+      name: 馈线F1
+      ratedCapacity: 2000
+      currentLoad: 1160
+      hasPart: [CB1, T0, S1, LsegA, S2, LsegX, T1, T2, T3]
+    - id: F2
+      name: 馈线F2
+      ratedCapacity: 1600
+      currentLoad: 750
+      hasPart: [CB2, S3, LsegB, T4, T5]
+
+  switches:
+    - { id: CB1, cls: Breaker,      name: 断路器CB1, isClosed: true,  upstream: [Bus1], downstream: [T0], feeder_of: F1 }
+    - { id: CB2, cls: Breaker,      name: 断路器CB2, isClosed: true,  upstream: [Bus1], downstream: [S3], feeder_of: F2 }
+    - { id: S1,  cls: Sectionalizer, name: 分段开关S1, isClosed: true, upstream: [T0],   downstream: [LsegA], feeder_of: F1 }
+    - { id: S2,  cls: Sectionalizer, name: 分段开关S2, isClosed: true, upstream: [LsegA], downstream: [LsegX], feeder_of: F1 }
+    - { id: S3,  cls: Sectionalizer, name: 分段开关S3, isClosed: true, upstream: [CB2],  downstream: [LsegB], feeder_of: F2 }
+    - { id: L1,  cls: TieSwitch,    name: 联络开关L1, isClosed: false, endA: LsegX, endB: LsegB, connectsTo: [LsegX, LsegB], feeder_of: null }
+
+  transformers:
+    - { id: T0, name: 配变T0, ratedCapacity: 200,  currentLoad: 100, upstream: [CB1], downstream: [S1],  feeder_of: F1, serves: [C0] }
+    - { id: T1, name: 配变T1, ratedCapacity: 630,  currentLoad: 560, upstream: [LsegX], downstream: [], feeder_of: F1, serves: [C1] }
+    - { id: T2, name: 配变T2, ratedCapacity: 400,  currentLoad: 300, upstream: [LsegX], downstream: [], feeder_of: F1, serves: [C2] }
+    - { id: T3, name: 配变T3, ratedCapacity: 315,  currentLoad: 200, upstream: [LsegA], downstream: [], feeder_of: F1, serves: [C3] }
+    - { id: T4, name: 配变T4, ratedCapacity: 630,  currentLoad: 500, upstream: [LsegB], downstream: [], feeder_of: F2, serves: [C4] }
+    - { id: T5, name: 配变T5, ratedCapacity: 315,  currentLoad: 250, upstream: [LsegB], downstream: [], feeder_of: F2, serves: [C5] }
+
+  lineSegments:
+    - { id: LsegA, name: 线路段LsegA, upstream: [S1],  downstream: [S2, T3], feeder_of: F1 }
+    - { id: LsegX, name: 线路段LsegX, upstream: [S2],  downstream: [T1, T2], feeder_of: F1 }
+    - { id: LsegB, name: 线路段LsegB, upstream: [S3],  downstream: [T4, T5], feeder_of: F2 }
+
+  customers:
+    - { id: C0, name: 用户组C0, customerCount: 100, servedBy: T0 }
+    - { id: C1, name: 用户组C1, customerCount: 500, servedBy: T1 }
+    - { id: C2, name: 用户组C2, customerCount: 300, servedBy: T2 }
+    - { id: C3, name: 用户组C3, customerCount: 200, servedBy: T3 }
+    - { id: C4, name: 用户组C4, customerCount: 400, servedBy: T4 }
+    - { id: C5, name: 用户组C5, customerCount: 300, servedBy: T5 }
+
+  workOrders:
+    - { id: WO-001, description: 配变T1例行检修, status: 待执行, coveredEquipment: [T1] }
