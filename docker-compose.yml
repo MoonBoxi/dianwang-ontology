@@ -1,0 +1,35 @@
+services:
+  app:
+    build: .
+    container_name: dianwang-demo
+    ports:
+      - "8000:8000"
+    environment:
+      # 可选: 接入 OpenAI 兼容 LLM 做意图解析(不配置则用规则解析)
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_BASE_URL=${LLM_BASE_URL:-https://api.deepseek.com/v1}
+      - LLM_MODEL=${LLM_MODEL:-deepseek-chat}
+      # Neo4j 连接(compose 网络内用服务名 neo4j)
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=neo4j123456
+    depends_on:
+      - neo4j
+    restart: unless-stopped
+
+  # 可选: Neo4j 图数据库(验证 Cypher 查询能力)
+  # 使用: docker compose exec app python neo4j_import.py --password neo4j123456
+  neo4j:
+    image: neo4j:5-community
+    container_name: dianwang-neo4j
+    ports:
+      - "7474:7474"   # Browser
+      - "7687:7687"   # Bolt
+    environment:
+      - NEO4J_AUTH=neo4j/neo4j123456
+    volumes:
+      - neo4j_data:/data
+    restart: unless-stopped
+
+volumes:
+  neo4j_data:
