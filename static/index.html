@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>配电网本体知识推理 Demo</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<style>
+  :root {
+    --blue: #007AFF; --blue-light: #5AC8FA; --green: #34C759;
+    --orange: #FF9F0A; --red: #FF3B30; --purple: #AF52DE;
+    --ink: #1d1d1f; --ink-2: #6e6e73; --ink-3: #aeaeb2;
+    --bg: #f2f3f5; --card: #ffffff; --line: #e5e5e7;
+    --shadow: 0 1px 3px rgba(0,0,0,.06), 0 8px 24px rgba(0,0,0,.06);
+    --shadow-hover: 0 2px 6px rgba(0,0,0,.08), 0 12px 32px rgba(0,0,0,.10);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "SF Pro SC", "PingFang SC", "Microsoft YaHei", sans-serif; }
+  body { background: var(--bg); color: var(--ink); }
+
+  /* ===== 顶部 ===== */
+  header {
+    background: rgba(255,255,255,.82); backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    border-bottom: 1px solid var(--line);
+    padding: 16px 28px; display: flex; align-items: center; gap: 14px; position: sticky; top: 0; z-index: 10;
+  }
+  .logo {
+    width: 36px; height: 36px; border-radius: 10px; flex-shrink: 0;
+    background: linear-gradient(135deg, var(--blue) 0%, var(--blue-light) 100%);
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 2px 8px rgba(0,122,255,.35);
+  }
+  .logo svg { width: 20px; height: 20px; }
+  header h1 { font-size: 17px; font-weight: 700; letter-spacing: .2px; }
+  header .sub { font-size: 12px; color: var(--ink-2); margin-top: 2px; }
+  header .right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+  .pill { font-size: 11.5px; color: var(--ink-2); background: var(--bg); border-radius: 999px; padding: 5px 12px; }
+
+  /* ===== Tab ===== */
+  .tabs { padding: 0 28px; background: var(--bg); display: flex; gap: 4px; }
+  .tabs button {
+    border: none; background: transparent; padding: 10px 16px; font-size: 13.5px;
+    color: var(--ink-2); cursor: pointer; border-radius: 10px 10px 0 0; font-weight: 500;
+    transition: color .2s;
+  }
+  .tabs button.active { color: var(--blue); background: var(--card); border-radius: 12px 12px 0 0; font-weight: 700; }
+  .tabs button:not(.active):hover { color: var(--ink); }
+
+  main { padding: 18px 28px 24px; display: flex; gap: 18px; height: calc(100vh - 122px); }
+  #tab-topology { display: flex; gap: 18px; width: 100%; }
+  .left { flex: 1.65; background: var(--card); border-radius: 16px; padding: 16px; display: flex; flex-direction: column; box-shadow: var(--shadow); min-width: 0; }
+  .right { flex: 1; background: var(--card); border-radius: 16px; padding: 14px; display: flex; flex-direction: column; box-shadow: var(--shadow); min-width: 300px; }
+
+  /* ===== 图卡片 ===== */
+  .card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  .card-title { font-size: 14px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+  .card-title .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--blue); box-shadow: 0 0 0 3px rgba(0,122,255,.15); }
+  .legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 11px; color: var(--ink-2); }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 3px; vertical-align: -1px; }
+  #chart { flex: 1; min-height: 400px; background-image: linear-gradient(var(--bg) 1px, transparent 1px), linear-gradient(90deg, var(--bg) 1px, transparent 1px); background-size: 42px 42px; border-radius: 12px; }
+  #summary-bar { margin-top: 10px; font-size: 12.5px; min-height: 22px; display: flex; align-items: center; gap: 8px; }
+  .badge { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 4px 12px; font-size: 12px; font-weight: 600; }
+  .badge.ok { background: rgba(52,199,89,.12); color: #1d9a43; }
+  .badge.warn { background: rgba(255,59,48,.10); color: #d32f2f; }
+  .badge .b-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .hint { font-size: 11.5px; color: var(--ink-3); margin-top: 4px; }
+
+  /* ===== 对话区 ===== */
+  .chat { display: flex; flex-direction: column; height: 100%; }
+  .chat-head { display: flex; align-items: center; justify-content: space-between; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+  .chat-head .card-title .dot { background: var(--green); box-shadow: 0 0 0 3px rgba(52,199,89,.15); }
+  #chat-log { flex: 1; overflow-y: auto; padding: 14px 2px; display: flex; flex-direction: column; gap: 12px; scrollbar-width: thin; }
+  .msg { max-width: 88%; padding: 10px 14px; border-radius: 16px; font-size: 13px; line-height: 1.65; white-space: pre-line; word-break: break-word; animation: fadeUp .25s ease; }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  .msg.user { align-self: flex-end; background: linear-gradient(135deg, var(--blue), #3395FF); color: #fff; border-bottom-right-radius: 5px; box-shadow: 0 2px 8px rgba(0,122,255,.25); }
+  .msg.ai { align-self: flex-start; background: var(--bg); color: var(--ink); border-bottom-left-radius: 5px; }
+  .msg .tag { display: inline-block; font-size: 10px; font-weight: 700; border-radius: 6px; padding: 2px 8px; margin-bottom: 6px; letter-spacing: .3px; }
+  .tag.t-outage { background: rgba(255,59,48,.12); color: #d32f2f; }
+  .tag.t-overload { background: rgba(255,159,10,.16); color: #c77700; }
+  .tag.t-transfer { background: rgba(0,122,255,.12); color: var(--blue); }
+  .tag.t-isolation { background: rgba(175,82,222,.12); color: #9335c9; }
+  .tag.t-status { background: rgba(52,199,89,.14); color: #1d9a43; }
+  .tag.t-other { background: #e4e4e8; color: var(--ink-2); }
+  .msg .trace { margin-top: 9px; border-top: 1px dashed #d4d4d9; padding-top: 8px; font-size: 11.5px; color: var(--ink-2); }
+  .msg .trace .step { position: relative; padding: 2px 0 2px 16px; }
+  .msg .trace .step::before { content: ""; position: absolute; left: 3px; top: 9px; width: 7px; height: 7px; border-radius: 50%; background: var(--blue); box-shadow: 0 0 0 2px rgba(0,122,255,.15); }
+  .msg .trace .step::after { content: ""; position: absolute; left: 6px; top: 18px; bottom: -4px; width: 1.5px; background: #d8d8dd; }
+  .msg .trace .step:last-child::after { display: none; }
+  .msg .apply { margin-top: 9px; background: var(--blue); color: #fff; border: none; border-radius: 9px; padding: 6px 14px; font-size: 12px; font-weight: 600; cursor: pointer; transition: transform .12s, opacity .2s; }
+  .msg .apply:hover { opacity: .88; } .msg .apply:active { transform: scale(.96); }
+  .quick { display: flex; flex-wrap: wrap; gap: 7px; }
+  .quick button {
+    border: 1px solid #d8d8dd; background: #fff; color: var(--ink); border-radius: 999px;
+    padding: 6px 14px; font-size: 12px; cursor: pointer; transition: all .15s; font-weight: 500;
+  }
+  .quick button:hover { border-color: var(--blue); color: var(--blue); background: rgba(0,122,255,.04); box-shadow: 0 1px 4px rgba(0,122,255,.15); }
+  .quick button:active { transform: scale(.96); }
+  .input-row { display: flex; gap: 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+  .input-row input {
+    flex: 1; border: 1px solid #d8d8dd; border-radius: 12px; padding: 10px 14px; font-size: 13px;
+    outline: none; transition: border-color .2s, box-shadow .2s; background: var(--bg);
+  }
+  .input-row input:focus { border-color: var(--blue); background: #fff; box-shadow: 0 0 0 3.5px rgba(0,122,255,.14); }
+  .input-row button {
+    background: var(--blue); color: #fff; border: none; border-radius: 12px; padding: 10px 18px;
+    font-size: 13px; font-weight: 600; cursor: pointer; transition: transform .12s, opacity .2s;
+    box-shadow: 0 2px 8px rgba(0,122,255,.3);
+  }
+  .input-row button:hover { opacity: .9; } .input-row button:active { transform: scale(.96); }
+  .input-row button.ghost { background: #fff; color: var(--blue); border: 1px solid var(--blue); box-shadow: none; }
+
+  #tab-ontology { width: 100%; display: none; flex-direction: column; gap: 14px; }
+  #onto-chart { background: var(--card); border-radius: 16px; padding: 10px; box-shadow: var(--shadow); }
+  .onto-bottom { display: flex; gap: 14px; }
+  .onto-card { flex: 1; background: var(--card); border-radius: 16px; padding: 16px 18px; box-shadow: var(--shadow); font-size: 12.5px; }
+  .onto-card h3 { font-size: 13px; font-weight: 700; margin-bottom: 10px; color: var(--blue); display: flex; align-items: center; gap: 7px; }
+  .onto-card h3::before { content: ""; width: 4px; height: 14px; border-radius: 2px; background: var(--blue); }
+  .onto-card li { list-style: none; padding: 4px 0; color: var(--ink-2); border-bottom: 1px dashed #eeeef0; }
+  .onto-card li:last-child { border-bottom: none; }
+  .onto-card li b { color: var(--ink); }
+
+  @media (max-width: 1100px) { #tab-topology { flex-direction: column; } .right { min-height: 380px; } main { height: auto; } }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="5" r="2.2"/><path d="M12 7v4"/><path d="M12 11l-4 3.5M12 11l4 3.5"/><circle cx="12" cy="19" r="2"/>
+      <path d="M8 14.5H5a2 2 0 0 0-2 2V19"/><path d="M16 14.5h3a2 2 0 0 1 2 2V19"/>
+    </svg>
+  </div>
+  <div>
+    <h1>配电网本体知识推理</h1>
+    <div class="sub">符号推理 + LLM 混合架构 · LangGraph 编排 · 点击开关可切换状态</div>
+  </div>
+  <div class="right">
+    <span class="pill" id="env-pill">⚡ 推理引擎在线</span>
+  </div>
+</header>
+
+<div class="tabs">
+  <button id="tab-btn-topology" class="active" onclick="switchTab('topology')">拓扑推理</button>
+  <button id="tab-btn-ontology" onclick="switchTab('ontology')">本体模型</button>
+</div>
+
+<main>
+  <!-- ============ 拓扑推理页 ============ -->
+  <section id="tab-topology">
+    <div class="left">
+      <div class="card-head">
+        <div class="card-title"><span class="dot"></span>电网拓扑</div>
+        <div class="legend">
+          <span><i style="background:#0A84FF"></i>馈线F1</span>
+          <span><i style="background:#32ADE6"></i>馈线F2</span>
+          <span><i style="background:#007AFF"></i>开关(合)</span>
+          <span><i style="background:#FF9F0A"></i>开关(分)</span>
+          <span><i style="background:#AF52DE"></i>联络开关</span>
+          <span><i style="background:#34C759"></i>配变</span>
+          <span><i style="background:#bbb;border:2px solid #FF3B30"></i>失电</span>
+          <span><i style="background:#FF3B30"></i>过载</span>
+        </div>
+      </div>
+      <div id="chart"></div>
+      <div id="summary-bar"></div>
+      <div class="hint">💡 点击 断路器/分段开关/联络开关 节点切换 合/分，触发规则推理自动高亮失电与过载设备</div>
+    </div>
+
+    <div class="right">
+      <div class="chat">
+        <div class="chat-head">
+          <div class="card-title"><span class="dot"></span>推理对话</div>
+          <span style="font-size:11px;color:var(--ink-3)">输入 1-5 快捷提问</span>
+        </div>
+        <div id="chat-log"></div>
+        <div class="quick" style="padding:10px 0 2px">
+          <button onclick="askQ('1')">1. 断点影响</button>
+          <button onclick="askQ('2')">2. 过载转移</button>
+          <button onclick="askQ('3')">3. 检修隔离</button>
+          <button onclick="askQ('4')">4. 运行状态</button>
+          <button onclick="askQ('5')">5. 转供校验</button>
+          <button onclick="askQ('当前电网运行状态？')">状态</button>
+        </div>
+        <div class="input-row">
+          <input id="q" placeholder="输入推理性问题，如：S1 断开后影响哪些用户？">
+          <button onclick="askQ()">发送</button>
+          <button class="ghost" onclick="streamDemo()">SSE</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 本体模型页 ============ -->
+  <section id="tab-ontology">
+    <div id="onto-chart" style="height:58vh"></div>
+    <div class="onto-bottom">
+      <div class="onto-card">
+        <h3>对象属性（关系）</h3>
+        <ul id="onto-props"></ul>
+      </div>
+      <div class="onto-card">
+        <h3>推理规则（Axiom）</h3>
+        <ul id="onto-rules"></ul>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+// ================= 节点坐标布局 =================
+const POS = {
+  Sub1:[50,300], Bus1:[150,300],
+  CB1:[260,160], T0:[370,60], S1:[470,160], LsegA:[570,160], S2:[670,160], LsegX:[770,160],
+  T1:[890,100], T2:[890,320], T3:[670,300],
+  C0:[470,18], C1:[1010,100], C2:[1010,320], C3:[770,385],
+  CB2:[260,520], S3:[370,520], LsegB:[470,520], T4:[600,450], T5:[600,640],
+  C4:[740,450], C5:[740,640]
+};
+const CAT_CN = { substation:'变电站', busbar:'母线', switch:'开关', tie:'联络开关', transformer:'配变', lineseg:'线路段', customer:'用户组' };
+
+let chart = echarts.init(document.getElementById('chart'));
+let ontoChart = null;
+let currentTopo = null;
+
+// ================= 拓扑渲染 =================
+async function loadTopology() {
+  const res = await fetch('/api/topology');
+  renderTopology(await res.json());
+}
+
+function renderTopology(topo) {
+  currentTopo = topo;
+  const W = chart.getWidth() - 60, H = chart.getHeight() - 40;
+  const sx = W / 1060, sy = H / 690;
+  const nodes = topo.nodes.map(n => {
+    const p = POS[n.id] || [400, 300];
+    let symbol = 'circle', symbolSize = 22, color, borderColor = 'transparent', borderWidth = 0;
+    let shadowBlur = 0, shadowColor = 'transparent';
+    let labelPos = 'top', labelColor = '#3a3a3c';
+
+    // ---- 基础样式(按类别) ----
+    if (n.category === 'substation') { symbol = 'rect'; symbolSize = [88, 34]; color = '#3a3a3c'; labelPos = 'left'; labelColor = '#3a3a3c'; }
+    else if (n.category === 'busbar') { symbol = 'rect'; symbolSize = [10, 46]; color = '#8E8E93'; labelPos = 'left'; }
+    else if (n.category === 'lineseg') { symbolSize = 11; color = '#C7C7CC'; }
+    else if (n.category === 'transformer') { symbol = 'diamond'; symbolSize = 34; color = '#34C759'; labelPos = 'right'; }
+    else if (n.category === 'customer') { symbolSize = 15; color = '#007AFF'; labelPos = 'bottom'; labelColor = '#8E8E93'; }
+    else if (n.category === 'tie') { symbolSize = 27; color = '#AF52DE'; borderColor = '#AF52DE'; borderWidth = 2.5; }
+    else { // switch
+      symbolSize = 25; labelPos = 'top';
+      if (n.isClosed) { color = '#007AFF'; borderColor = '#0A84FF'; borderWidth = 2.5; }
+      else { color = '#FF9F0A'; borderColor = '#FF9F0A'; borderWidth = 2.5; }
+    }
+    // ---- 状态覆盖 ----
+    if (n.status === 'outage') { color = '#C7C7CC'; borderColor = '#FF3B30'; borderWidth = 3; shadowBlur = 14; shadowColor = 'rgba(255,59,48,.45)'; }
+    else if (n.status === 'overload') { color = '#FF3B30'; shadowBlur = 12; shadowColor = 'rgba(255,59,48,.5)'; }
+
+    let label = n.name;
+    if (n.category === 'transformer' && n.loadRate != null) label = n.name + '\n' + (n.loadRate*100).toFixed(0) + '%';
+    return {
+      id: n.id, name: label, x: p[0]*sx + 30, y: p[1]*sy + 20,
+      symbol, symbolSize, category: n.category, status: n.status, isClosed: n.isClosed,
+      itemStyle: { color, borderColor, borderWidth, shadowBlur, shadowColor,
+                   shadowOffsetY: shadowBlur ? 2 : 0 },
+      label: { show: true, position: labelPos, fontSize: n.category==='substation' ? 12.5 : 11,
+               color: labelColor, fontWeight: n.category==='substation' ? 700 : 500, lineHeight: 15 }
+    };
+  });
+  const links = topo.edges.map(e => ({
+    source: e.source, target: e.target,
+    lineStyle: e.lineStyle || { width: 2.5, color: '#C7C7CC' },
+    edgeSymbol: ['none','arrow'], edgeSymbolSize: 7
+  }));
+  chart.setOption({
+    animationDuration: 450, animationDurationUpdate: 350,
+    tooltip: {
+      backgroundColor: 'rgba(29,29,31,.92)', borderWidth: 0, textStyle: { color: '#fff', fontSize: 12 },
+      padding: [10, 14], extraCssText: 'border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.2);',
+      formatter: p => {
+        if (!p.dataType) return '';
+        const d = p.data;
+        const s = d.status === 'outage' ? '<span style="color:#FF6B5E">⚠ 失电</span>'
+                : d.status === 'overload' ? '<span style="color:#FFB24D">⚠ 过载</span>'
+                : d.isClosed != null ? (d.isClosed ? '<span style="color:#34C759">● 合闸</span>' : '<span style="color:#FF9F0A">● 断开</span>') : '正常';
+        return `<b style="font-size:13px">${d.name.split('\n')[0]}</b><br/>` +
+          `<span style="color:#b0b0b6">类型</span> ${CAT_CN[d.category]||d.category}<br/>` +
+          (d.loadRate != null ? `<span style="color:#b0b0b6">负载率</span> ${(d.loadRate*100).toFixed(1)}%<br/>` : '') +
+          `<span style="color:#b0b0b6">状态</span> ${s}` +
+          (d.feeder ? `<br/><span style="color:#b0b0b6">馈线</span> ${d.feeder}` : '');
+      }
+    },
+    series: [{
+      type: 'graph', layout: 'none', roam: true, draggable: true,
+      data: nodes, links: links,
+      emphasis: { focus: 'adjacency', itemStyle: { shadowBlur: 18, shadowColor: 'rgba(0,122,255,.3)' }, lineStyle: { width: 3.2 } },
+      labelLayout: { hideOverlap: true }
+    }]
+  });
+  // ---- 状态摘要徽章 ----
+  const s = topo.summary || {};
+  const bar = document.getElementById('summary-bar');
+  if (s.open_switches && s.open_switches.length) {
+    bar.innerHTML = `<span class="badge warn"><span class="b-dot"></span>${s.open_switches.length} 个开关断开</span>` +
+      `<span class="badge warn"><span class="b-dot"></span>${s.outage_devices.length} 个设备失电</span>`;
+  } else {
+    bar.innerHTML = `<span class="badge ok"><span class="b-dot"></span>全网正常供电</span>`;
+  }
+}
+
+// 点击开关切换状态
+chart.on('click', async p => {
+  const n = p.data;
+  if (!n || !['switch','tie'].includes(n.category)) return;
+  const closed = !n.isClosed;
+  const res = await fetch('/api/set_switch', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ device_id: n.id, closed })
+  });
+  renderTopology((await res.json()).topology);
+});
+
+// ================= 对话推理 =================
+function addMsg(role, html) {
+  const log = document.getElementById('chat-log');
+  const div = document.createElement('div');
+  div.className = 'msg ' + role;
+  div.innerHTML = html;
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+  return div;
+}
+
+const INTENT_TAG = {
+  outage:'<span class="tag t-outage">断点分析</span>', transfer:'<span class="tag t-transfer">负荷转移</span>',
+  overload:'<span class="tag t-overload">过载判定</span>', isolation:'<span class="tag t-isolation">检修隔离</span>',
+  status:'<span class="tag t-status">状态查询</span>', other:'<span class="tag t-other">—</span>'
+};
+
+async function askQ(question) {
+  const q = (question || document.getElementById('q').value).trim();
+  if (!q) return;
+  document.getElementById('q').value = '';
+  addMsg('user', q.replace(/</g,'&lt;'));
+  try {
+    const res = await fetch('/api/ask', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ question: q })
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const r = await res.json();
+    let html = INTENT_TAG[r.intent] || INTENT_TAG.other;
+    html += r.answer.replace(/</g,'&lt;').replace(/\n/g,'<br/>');
+    if (r.trace && r.trace.length && r.intent !== 'other') {
+      html += '<div class="trace">' + r.trace.map(t => `<div class="step">${t.replace(/</g,'&lt;')}</div>`).join('') + '</div>';
+    }
+    if (r.data && (r.intent === 'outage' || r.intent === 'transfer')) {
+      html += `<button class="apply" onclick="applyToGraph(${JSON.stringify(r).replace(/"/g,'&quot;')})">应用到拓扑图</button>`;
+    }
+    if (r.data && Array.isArray(r.data.quick) && r.data.quick.length) {
+      html += '<div class="quick" style="margin-top:9px">' + r.data.quick.map((qt, i) =>
+        `<button onclick="askQ('${qt.replace(/'/g, "\\'")}')">${i+1}. ${qt.replace(/</g,'&lt;')}</button>`).join('') + '</div>';
+    }
+    addMsg('ai', html);
+  } catch (err) {
+    addMsg('ai', '⚠️ 请求失败：' + err.message + '（请确认后端服务正常运行）');
+  }
+}
+
+// 输入框回车发送（兼容中文输入法）
+(function initInput() {
+  const qInput = document.getElementById('q');
+  let composing = false;
+  qInput.addEventListener('compositionstart', () => { composing = true; });
+  qInput.addEventListener('compositionend', () => { composing = false; });
+  qInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !composing) askQ();
+  });
+})();
+
+async function applyToGraph(r) {
+  const d = r.data;
+  if (r.intent === 'outage' && d.open_switches && d.open_switches.length) {
+    for (const s of d.open_switches) await setSwitch(s, false);
+  } else if (r.intent === 'transfer' && d.action && d.action.includes('L1')) {
+    await setSwitch('L1', true);
+  }
+}
+async function setSwitch(id, closed) {
+  const res = await fetch('/api/set_switch', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ device_id: id, closed })
+  });
+  renderTopology((await res.json()).topology);
+}
+
+// SSE 流式推理演示
+function streamDemo() {
+  const q = (document.getElementById('q').value || 'S1 断开后影响哪些用户？').trim();
+  addMsg('user', '【流式演示】' + q.replace(/</g,'&lt;'));
+  const box = addMsg('ai', '<span class="tag t-outage">推理链路流式输出</span><div class="trace" id="stream-trace"></div>');
+  const es = new EventSource('/api/ask_stream?q=' + encodeURIComponent(q));
+  es.onmessage = e => {
+    if (e.data === '[DONE]') { es.close(); return; }
+    const d = JSON.parse(e.data);
+    if (d.type === 'trace') {
+      const t = document.getElementById('stream-trace');
+      const line = document.createElement('div');
+      line.className = 'step';
+      line.textContent = d.step;
+      t.appendChild(line);
+    } else if (d.type === 'answer') {
+      const p = document.createElement('div');
+      p.style.cssText = 'margin-top:9px;border-top:1px dashed #d4d4d9;padding-top:8px;white-space:pre-line;font-size:12.5px;color:#1d1d1f';
+      p.textContent = d.answer;
+      box.appendChild(p);
+    }
+  };
+}
+
+// ================= Tab 切换 =================
+function switchTab(tab) {
+  document.getElementById('tab-topology').style.display = tab === 'topology' ? 'flex' : 'none';
+  document.getElementById('tab-ontology').style.display = tab === 'ontology' ? 'flex' : 'none';
+  document.getElementById('tab-btn-topology').classList.toggle('active', tab === 'topology');
+  document.getElementById('tab-btn-ontology').classList.toggle('active', tab === 'ontology');
+  if (tab === 'ontology') loadOntology();
+  else chart.resize();
+}
+
+// ================= 本体可视化 =================
+async function loadOntology() {
+  const res = await fetch('/api/ontology');
+  const o = await res.json();
+  if (!ontoChart) ontoChart = echarts.init(document.getElementById('onto-chart'));
+  const cls = {};
+  o.classes.forEach(c => cls[c.id] = { name: c.name || c.id, parent: c.parent, children: [] });
+  const roots = [];
+  o.classes.forEach(c => {
+    if (c.parent && cls[c.parent]) cls[c.parent].children.push(cls[c.id]);
+    else roots.push(cls[c.id]);
+  });
+  ontoChart.setOption({
+    tooltip: { backgroundColor: 'rgba(29,29,31,.92)', borderWidth: 0, textStyle: { color: '#fff' },
+               formatter: p => `<b>${p.name}</b>` },
+    series: [{
+      type: 'tree', data: roots, orient: 'LR', top: 24, left: 40, right: 130, bottom: 24,
+      symbol: 'circle', symbolSize: 8,
+      label: { position: 'left', verticalAlign: 'middle', align: 'right', fontSize: 12.5, color: '#1d1d1f', fontWeight: 500 },
+      leaves: { label: { position: 'right', align: 'left' } },
+      expandAndCollapse: true, initialTreeDepth: 3,
+      lineStyle: { color: '#c7c7cc', width: 1.6 },
+      itemStyle: { color: '#007AFF' },
+      emphasis: { focus: 'descendant' }
+    }]
+  });
+  document.getElementById('onto-props').innerHTML = o.objectProperties.map(p =>
+    `<li><b>${p.name||p.id}</b> <span style="color:#aeaeb2">${p.id}</span>（${p.domain||'?'} → ${p.range||'?'}）</li>`).join('');
+  document.getElementById('onto-rules').innerHTML =
+    `<li>规则已声明于 ontology.yaml（含故障传播 / 过载触发 / 负荷转移判定 / 检修隔离等，共 ${o.ruleCount} 条，均含 SWRL 风格公理表达），由推理引擎确定性执行。</li>`;
+}
+
+// ================= 启动 =================
+window.addEventListener('resize', () => chart.resize());
+loadTopology();
+</script>
+</body>
+</html>
