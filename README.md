@@ -13,6 +13,7 @@
 | 增强 | Neo4j 图数据库 | `neo4j_import.py` + `/api/neo4j`（Cypher 查询验证，未装时优雅降级） | ✅ |
 | 增强 | Docker 部署 | `Dockerfile` + `docker-compose.yml` | ✅ |
 | 配套 | 测试报告 | `test_report.md`（41/41 断言通过） | ✅ |
+| 配套 | **与模型交互记录** | `人机交互记录.md`（10 轮真实会话实录：提问→意图→推理链路→回答→交互思路） | ✅ |
 
 ## 二、快速启动
 
